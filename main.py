@@ -393,5 +393,9 @@ def run_forever_with_reconnect():
 
 
 if __name__ == "__main__":
+    if VOLUME_PATH == ".":
+        print(f"⚠️ ATTENTION : RAILWAY_VOLUME_MOUNT_PATH non détecté — CSV éphémère utilisé : {os.path.abspath(CSV_FILE)}")
+    else:
+        print(f"✅ Volume détecté ({VOLUME_PATH}) — CSV persistant utilisé : {CSV_FILE}")
     print(f"🎲 Bot démarré | Suite Fibonacci : {engine.fib} | Capital requis : {engine.actual_required_capital} DHS")
     run_forever_with_reconnect()
