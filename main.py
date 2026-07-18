@@ -99,7 +99,7 @@ PROXY_PORT = 824
 PROXY_TYPE = "socks5"
 PROXY_LOGIN = "c28464d2322ae2cb5a09"
 PROXY_PASSWORD = "afd6703a49960bd1"
-USE_PROXY = True
+USE_PROXY = False  # 🔧 TEST TEMPORAIRE : désactivé pour isoler si le proxy résidentiel cause le délai de 10s
 
 DEBUG_TRACE = False  # remets à True si besoin de rediagnostiquer
 
