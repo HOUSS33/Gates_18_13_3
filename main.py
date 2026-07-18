@@ -49,8 +49,13 @@ if not os.path.exists(CSV_FILE):
         writer.writerow(CSV_HEADERS)
 
 
-def log_spin_to_csv(game_id, result, color):
-    row = [datetime.now().strftime("%Y-%m-%d %H:%M:%S"), game_id, result, color]
+def log_spin_to_csv(game_id, result, color, spin_time=None):
+    # 🔧 Utilise l'heure RÉELLE du spin fournie par le serveur (entry["time"])
+    # plutôt que l'heure de traitement — important pour les rattrapages, où
+    # plusieurs spins sont traités d'un coup (donc datetime.now() serait
+    # identique pour tous, ce qui fausserait les horodatages du CSV).
+    timestamp = spin_time if spin_time else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    row = [timestamp, game_id, result, color]
     with open(CSV_FILE, mode='a', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(row)
@@ -307,7 +312,7 @@ def process_new_results(results):
 
         # Enregistrement CSV — même point de dédoublonnage que le moteur,
         # donc chaque spin réel n'est écrit qu'une seule fois.
-        log_spin_to_csv(game_id, entry.get("result"), entry.get("color"))
+        log_spin_to_csv(game_id, entry.get("result"), entry.get("color"), entry.get("time"))
 
         try:
             number = int(entry["result"])
