@@ -19,8 +19,29 @@ from datetime import datetime
 # ==========================================================================
 # 0. ENREGISTREMENT CSV
 # ==========================================================================
-CSV_FILE = "roulette_data.csv"
+# 🔧 Si un Volume Railway est attaché, RAILWAY_VOLUME_MOUNT_PATH est injecté
+# automatiquement (ex: "/data") et les données survivent aux redéploiements.
+# En local (pas de volume), ça retombe simplement sur le dossier courant.
+VOLUME_PATH = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", ".")
+CSV_FILE = os.path.join(VOLUME_PATH, "roulette_data.csv")
 CSV_HEADERS = ["Timestamp", "GameID", "Result", "Color"]
+
+
+def load_last_game_id_from_csv():
+    """Lit le dernier gameId déjà enregistré, pour rattraper les spins
+    manqués pendant une coupure/redémarrage (AVANT de recréer le header)."""
+    if not os.path.exists(CSV_FILE):
+        return None
+    try:
+        with open(CSV_FILE, newline='') as f:
+            rows = list(csv.reader(f))
+        if len(rows) <= 1:  # juste le header, ou fichier vide
+            return None
+        return rows[-1][1]  # colonne GameID de la dernière ligne
+    except Exception as e:
+        print(f"[CSV] Impossible de lire le dernier gameId : {e}")
+        return None
+
 
 if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, mode='w', newline='') as f:
@@ -235,7 +256,9 @@ engine = LiveSignalEngine(
     base_unit=None
 )
 
-last_game_id = None
+last_game_id = load_last_game_id_from_csv()  # 🔧 reprend où on s'était arrêté avant un éventuel crash
+if last_game_id:
+    print(f"[Rattrapage] Dernier gameId connu au démarrage : {last_game_id}")
 
 
 def handle_new_result(number, table_id):
@@ -246,9 +269,55 @@ def handle_new_result(number, table_id):
         print(msg)
 
 
-def on_message(ws, message):
+def process_new_results(results):
+    """
+    Traite tous les résultats plus récents que le dernier gameId connu,
+    dans l'ordre chronologique (du plus ancien au plus récent) — pas
+    seulement le dernier. Ça permet de rattraper les spins manqués pendant
+    une coupure/redémarrage, tant que la coupure dure moins que la fenêtre
+    de 20 résultats fournie par le WebSocket.
+    """
     global last_game_id
 
+    if last_game_id is None:
+        # Premier démarrage (pas de CSV existant) : on amorce le moteur avec
+        # toute la fenêtre disponible plutôt que de démarrer à l'aveugle.
+        new_entries = list(reversed(results))
+    else:
+        idx = next((i for i, r in enumerate(results) if r.get("gameId") == last_game_id), None)
+        if idx is None:
+            # Le dernier gameId connu n'est plus dans la fenêtre de 20 :
+            # la coupure a duré trop longtemps pour rattraper en toute sécurité.
+            # On reprend juste depuis le plus récent, comme avant.
+            print("[Rattrapage] ⚠️ Coupure trop longue (>20 spins) — rattrapage partiel impossible, reprise au plus récent.")
+            new_entries = [results[0]] if results else []
+        elif idx == 0:
+            new_entries = []  # rien de nouveau depuis le dernier traitement
+        else:
+            new_entries = list(reversed(results[:idx]))  # du plus ancien au plus récent parmi les manqués
+            if len(new_entries) > 1:
+                print(f"[Rattrapage] {len(new_entries)} spin(s) manqué(s) détecté(s), traitement en cours...")
+
+    for entry in new_entries:
+        game_id = entry.get("gameId")
+        if game_id is None:
+            continue
+
+        last_game_id = game_id
+
+        # Enregistrement CSV — même point de dédoublonnage que le moteur,
+        # donc chaque spin réel n'est écrit qu'une seule fois.
+        log_spin_to_csv(game_id, entry.get("result"), entry.get("color"))
+
+        try:
+            number = int(entry["result"])
+        except (KeyError, ValueError, TypeError):
+            continue
+
+        handle_new_result(number, TABLE_KEY)
+
+
+def on_message(ws, message):
     try:
         data = json.loads(message)
     except json.JSONDecodeError:
@@ -261,24 +330,7 @@ def on_message(ws, message):
     if not results:
         return
 
-    latest = results[0]  # le premier élément = le résultat le plus récent
-    game_id = latest.get("gameId")
-
-    if game_id is None or game_id == last_game_id:
-        return  # rien de nouveau, ou déjà traité
-
-    last_game_id = game_id
-
-    # Enregistrement CSV — même point de dédoublonnage que le moteur,
-    # donc chaque spin réel n'est écrit qu'une seule fois.
-    log_spin_to_csv(game_id, latest.get("result"), latest.get("color"))
-
-    try:
-        number = int(latest["result"])
-    except (KeyError, ValueError, TypeError):
-        return
-
-    handle_new_result(number, data.get("tableId"))
+    process_new_results(results)
 
 
 def on_error(ws, error):
