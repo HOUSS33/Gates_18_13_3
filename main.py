@@ -267,11 +267,15 @@ if last_game_id:
 
 
 def handle_new_result(number, table_id):
+    t0 = time.time()
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Nouveau spin (table {table_id}) : {number}")
     events = engine.process_spin(number)
+    t1 = time.time()
     for msg in events:
         send_telegram_alert(msg)
         print(msg)
+    t2 = time.time()
+    print(f"[TIMING] engine={t1-t0:.3f}s | telegram={t2-t1:.3f}s | total={t2-t0:.3f}s")
 
 
 def process_new_results(results):
@@ -312,7 +316,11 @@ def process_new_results(results):
 
         # Enregistrement CSV — même point de dédoublonnage que le moteur,
         # donc chaque spin réel n'est écrit qu'une seule fois.
+        t_csv0 = time.time()
         log_spin_to_csv(game_id, entry.get("result"), entry.get("color"), entry.get("time"))
+        t_csv1 = time.time()
+        if t_csv1 - t_csv0 > 0.1:
+            print(f"[TIMING] écriture CSV lente : {t_csv1 - t_csv0:.3f}s")
 
         try:
             number = int(entry["result"])
