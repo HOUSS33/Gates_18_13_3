@@ -387,7 +387,7 @@ def run_forever_with_reconnect():
             on_close=on_close,
         )
 
-        run_kwargs = {"ping_interval": 20, "ping_timeout": 10, "origin": WS_ORIGIN}
+        run_kwargs = {"ping_interval": 30, "ping_timeout": 25, "origin": WS_ORIGIN}
         if USE_PROXY:
             run_kwargs.update({
                 "http_proxy_host": PROXY_HOST,
